@@ -1,5 +1,7 @@
 //! HTTP(S) capability probing. Files are not written by this crate yet.
 
+pub mod transfer;
+
 use reqwest::header::{ACCEPT_RANGES, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
 use reqwest::{Client, StatusCode, Url};
 use std::time::Duration;

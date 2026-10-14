@@ -3,6 +3,8 @@
 use std::error::Error;
 use std::fmt;
 
+pub mod application;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DownloadId(u64);
 
@@ -51,6 +53,7 @@ pub enum DownloadError {
     },
     ProgressExceedsTotal,
     ProgressRegressed,
+    TotalChanged,
 }
 
 impl fmt::Display for DownloadError {
@@ -62,6 +65,7 @@ impl fmt::Display for DownloadError {
             }
             Self::ProgressExceedsTotal => write!(f, "received bytes exceed known total"),
             Self::ProgressRegressed => write!(f, "received bytes cannot decrease"),
+            Self::TotalChanged => write!(f, "known total bytes cannot change"),
         }
     }
 }
@@ -110,7 +114,9 @@ impl Download {
             });
         }
         if next == DownloadState::Completed
-            && self.total_bytes.is_some_and(|total| self.received_bytes != total)
+            && self
+                .total_bytes
+                .is_some_and(|total| self.received_bytes != total)
         {
             return Err(DownloadError::ProgressExceedsTotal);
         }
@@ -131,6 +137,9 @@ impl Download {
         }
         if received_bytes < self.received_bytes {
             return Err(DownloadError::ProgressRegressed);
+        }
+        if self.total_bytes.is_some() && total_bytes != self.total_bytes {
+            return Err(DownloadError::TotalChanged);
         }
         if total_bytes.is_some_and(|total| received_bytes > total) {
             return Err(DownloadError::ProgressExceedsTotal);
@@ -165,8 +174,14 @@ mod tests {
         let mut item = Download::new(DownloadId::new(2).unwrap());
         item.transition_to(DownloadState::Downloading).unwrap();
         item.update_progress(5, Some(10)).unwrap();
-        assert_eq!(item.update_progress(4, Some(10)), Err(DownloadError::ProgressRegressed));
-        assert_eq!(item.update_progress(11, Some(10)), Err(DownloadError::ProgressExceedsTotal));
+        assert_eq!(
+            item.update_progress(4, Some(10)),
+            Err(DownloadError::ProgressRegressed)
+        );
+        assert_eq!(
+            item.update_progress(11, Some(10)),
+            Err(DownloadError::ProgressExceedsTotal)
+        );
         assert_eq!(item.received_bytes(), 5);
     }
 

@@ -1,0 +1,12 @@
+[package]
+name = "rust-idm-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+download-core = { path = "../../crates/download-core" }
+
+[lints]
+workspace = true

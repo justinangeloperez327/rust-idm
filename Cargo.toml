@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/cli",
+  "apps/desktop",
+  "crates/download-core",
+  "crates/download-http",
+  "crates/download-storage",
+  "crates/download-scheduler",
+  "crates/download-platform",
+  "crates/download-ipc",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+rust-version = "1.82"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

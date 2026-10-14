@@ -1,6 +1,6 @@
 //! HTTP(S) capability probing. Files are not written by this crate yet.
 
-use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
 use reqwest::{Client, StatusCode, Url};
 use std::time::Duration;
 
@@ -71,9 +71,6 @@ impl HttpClient {
             let mut result = read_metadata(&head);
             if result.content_length == Some(0) {
                 result.supports_ranges = false;
-                return Ok(result);
-            }
-            if result.supports_ranges {
                 return Ok(result);
             }
         }

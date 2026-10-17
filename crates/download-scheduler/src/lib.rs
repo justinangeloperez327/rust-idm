@@ -1,3 +1,5 @@
+pub mod bandwidth;
+
 //! Deterministic priority scheduler. Network workers are integrated later.
 use std::collections::{HashMap, HashSet, VecDeque};
 

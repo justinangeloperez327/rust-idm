@@ -113,7 +113,8 @@ impl DownloadDatabase {
             "SELECT id,url,destination,status,received_bytes,total_bytes,etag,last_modified,checkpoint_json
              FROM downloads ORDER BY id DESC"
         )?;
-        stmt.query_map([], decode_record)?.collect()
+        let records = stmt.query_map([], decode_record)?.collect();
+        records
     }
 
     /// Mark interrupted active downloads as paused when reopening the application.

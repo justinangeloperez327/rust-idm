@@ -1,6 +1,6 @@
-pub mod bandwidth;
-
 //! Deterministic priority scheduler. Network workers are integrated later.
+
+pub mod bandwidth;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

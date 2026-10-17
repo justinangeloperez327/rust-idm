@@ -1,0 +1,102 @@
+import { VerticalBox, HorizontalBox, Button, LineEdit, ScrollView } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "Rust IDM";
+    width: 1080px;
+    height: 700px;
+    min-width: 720px;
+    min-height: 480px;
+
+    in-out property <bool> dark-mode: true;
+    in-out property <string> selected-page: "All Downloads";
+    callback add-download(string);
+    callback theme-changed(bool);
+
+    background: dark-mode ? #111318 : #f4f5f7;
+    property <brush> text-color: dark-mode ? #edf0f4 : #202630;
+    property <brush> muted-color: dark-mode ? #9ba3b2 : #626b79;
+    property <brush> panel-color: dark-mode ? #1c2028 : #ffffff;
+
+    HorizontalBox {
+        spacing: 0px;
+        Rectangle {
+            width: 225px;
+            background: panel-color;
+            VerticalBox {
+                padding: 20px;
+                spacing: 14px;
+                Text { text: "RUST IDM"; font-size: 22px; font-weight: 700; color: text-color; }
+                Text { text: "DOWNLOAD MANAGER"; font-size: 11px; color: muted-color; }
+                Rectangle { height: 1px; background: dark-mode ? #343b47 : #d9dee6; }
+                for page in ["All Downloads", "Active", "Completed", "Paused", "Failed", "Settings"] : Button {
+                    text: page;
+                    clicked => { selected-page = page; }
+                }
+                Rectangle { vertical-stretch: 1; }
+                Button {
+                    text: dark-mode ? "Light appearance" : "Dark appearance";
+                    clicked => {
+                        dark-mode = !dark-mode;
+                        theme-changed(dark-mode);
+                    }
+                }
+                Text { text: "Group 10 • UI foundation"; font-size: 11px; color: muted-color; }
+            }
+        }
+        VerticalBox {
+            padding: 24px;
+            spacing: 18px;
+            HorizontalBox {
+                spacing: 16px;
+                VerticalBox {
+                    spacing: 4px;
+                    Text { text: selected-page; font-size: 26px; font-weight: 700; color: text-color; }
+                    Text { text: "Manage files and monitor transfers"; font-size: 13px; color: muted-color; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            HorizontalBox {
+                spacing: 8px;
+                url-input := LineEdit { placeholder-text: "Paste an HTTP or HTTPS download URL"; }
+                Button {
+                    text: "Add URL";
+                    clicked => { add-download(url-input.text); }
+                }
+            }
+            Rectangle {
+                background: panel-color;
+                border-radius: 6px;
+                vertical-stretch: 1;
+                VerticalBox {
+                    padding: 18px;
+                    spacing: 10px;
+                    HorizontalBox {
+                        Text { text: "Name"; color: muted-color; horizontal-stretch: 3; }
+                        Text { text: "Status"; color: muted-color; horizontal-stretch: 1; }
+                        Text { text: "Progress"; color: muted-color; horizontal-stretch: 1; }
+                    }
+                    Rectangle { height: 1px; background: dark-mode ? #343b47 : #e4e7ec; }
+                    Rectangle { vertical-stretch: 1; }
+                    Text {
+                        text: "No downloads yet";
+                        color: text-color;
+                        horizontal-alignment: center;
+                        font-size: 19px;
+                    }
+                    Text {
+                        text: "Download actions will be connected to the transfer engine in the next phase.";
+                        color: muted-color;
+                        horizontal-alignment: center;
+                        font-size: 12px;
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            Text {
+                text: "Rust IDM • Native desktop preview • Transfers not connected";
+                color: muted-color;
+                font-size: 12px;
+            }
+        }
+    }
+}

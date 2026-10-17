@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+build = "build.rs"
 
 [dependencies]
 download-core = { path = "../../crates/download-core" }
+slint = { version = "1.13", default-features = false, features = ["std", "backend-winit", "renderer-software"] }
+
+[build-dependencies]
+slint-build = "1.13"
 
 [lints]
 workspace = true

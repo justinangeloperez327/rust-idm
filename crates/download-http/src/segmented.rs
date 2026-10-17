@@ -108,7 +108,7 @@ impl SegmentedDownloader {
         if !matches!(parsed.scheme(), "http" | "https")
             || destination.as_os_str().is_empty()
             || total == 0
-            || etag.is_some_and(|tag| tag.starts_with("W/") || tag.contains(['\r', '\n']))
+            || etag.is_some_and(|tag| tag.starts_with("W/") || tag.contains('\r') || tag.contains('\n'))
         {
             return Err(SegmentedError::InvalidInput);
         }

@@ -125,7 +125,7 @@ pub fn save(path: &Path, checkpoint: &DownloadCheckpoint) -> io::Result<()> {
     let temporary = path.with_extension(format!("checkpoint-{}.tmp", std::process::id()));
     let result = (|| {
         let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
-        serde_json::to_writer(&mut file, checkpoint)?;
+        serde_json::to_writer(&mut file, checkpoint).map_err(io::Error::other)?;
         file.flush()?;
         file.sync_all()?;
         fs::rename(&temporary, path)?;
@@ -137,7 +137,7 @@ pub fn save(path: &Path, checkpoint: &DownloadCheckpoint) -> io::Result<()> {
 
 pub fn load(path: &Path) -> io::Result<DownloadCheckpoint> {
     let file = fs::File::open(path)?;
-    let checkpoint: DownloadCheckpoint = serde_json::from_reader(file)?;
+    let checkpoint: DownloadCheckpoint = serde_json::from_reader(file).map_err(io::Error::other)?;
     checkpoint.validate().map_err(io::Error::other)?;
     Ok(checkpoint)
 }

@@ -3,7 +3,7 @@
 
 use reqwest::header::{CONTENT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
 use reqwest::{Client, StatusCode, Url};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
@@ -124,6 +124,7 @@ impl SegmentedDownloader {
         result
     }
 
+    #[allow(clippy::too_many_arguments)] // download context retained until Group 6 integration refactor
     async fn download_inner(
         &self,
         url: Url,

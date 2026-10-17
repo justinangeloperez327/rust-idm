@@ -1,6 +1,8 @@
 //! Durable, versioned transfer checkpoints. Callers must validate the remote
 //! resource before trusting any recorded completed segment.
 
+pub mod database;
+
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};

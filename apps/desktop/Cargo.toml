@@ -3,12 +3,15 @@ name = "rust-idm-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-rust-version.workspace = true
+rust-version.workspace = "1.82"
 build = "build.rs"
 
 [dependencies]
 download-core = { path = "../../crates/download-core" }
+download-http = { path = "../../crates/download-http" }
 slint = { version = "1.13", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-18"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 [build-dependencies]
 slint-build = "1.13"

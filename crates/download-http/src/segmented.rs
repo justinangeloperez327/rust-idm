@@ -187,9 +187,17 @@ impl SegmentedDownloader {
         drop(output);
         if cancel.is_cancelled() { return Err(SegmentedError::Cancelled); }
         if fs::try_exists(destination).await? { return Err(SegmentedError::DestinationExists); }
-        // A no-replace publish operation is still required for production safety.
-        fs::rename(&assembly, destination).await?;
-        Ok(copied)
+        // Publish without replacing another process's completed file.
+        match fs::hard_link(&assembly, destination).await {
+            Ok(()) => {
+                fs::remove_file(&assembly).await?;
+                Ok(copied)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(SegmentedError::DestinationExists)
+            }
+            Err(error) => Err(SegmentedError::Io(error)),
+        }
     }
 }
 

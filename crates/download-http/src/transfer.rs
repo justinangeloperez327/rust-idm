@@ -110,16 +110,18 @@ impl TransferEngine {
         drop(output);
         match result {
             Ok(bytes) => {
-                if fs::try_exists(destination).await? {
-                    fs::remove_file(&partial).await?;
-                    return Err(TransferError::DestinationExists);
-                }
-                // Note: some platforms can replace a destination created in the
-                // narrow interval between the existence check and this rename.
-                if let Err(error) = fs::rename(&partial, destination).await {
+                // Hard-link publication is no-replace on Windows/NTFS and other
+                // supported local filesystems. Both paths are siblings.
+                // A failure is returned rather than risking an overwrite.
+                let publish = fs::hard_link(&partial, destination).await;
+                if let Err(error) = publish {
                     let _ = fs::remove_file(&partial).await;
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        return Err(TransferError::DestinationExists);
+                    }
                     return Err(TransferError::Io(error));
                 }
+                let _ = fs::remove_file(&partial).await;
                 if let Some(tx) = events {
                     let _ = tx.send(TransferEvent::Completed { bytes });
                 }
@@ -191,5 +193,60 @@ mod tests {
         token.cancel();
         let result = engine.download("http://127.0.0.1:9/test", Path::new("cancelled-test.bin"), &token, None).await;
         assert!(matches!(result, Err(TransferError::Cancelled)));
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn serve_once(body: &'static [u8]) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = stream.read(&mut buffer).await.unwrap();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(header.as_bytes()).await.unwrap();
+            stream.write_all(body).await.unwrap();
+        });
+        (format!("http://{address}/sample"), handle)
+    }
+
+    #[tokio::test]
+    async fn streams_a_real_response_and_publishes_exact_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("sample.bin");
+        let (url, server) = serve_once(b"real download payload").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let result = TransferEngine::new().unwrap()
+            .download(&url, &destination, &CancellationToken::new(), Some(&tx))
+            .await.unwrap();
+        server.await.unwrap();
+        assert_eq!(result.bytes, 21);
+        assert_eq!(fs::read(&destination).await.unwrap(), b"real download payload");
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert!(events.iter().any(|event| matches!(event, TransferEvent::Completed { bytes: 21 })));
+    }
+
+    #[tokio::test]
+    async fn does_not_replace_a_preexisting_file() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("existing.bin");
+        fs::write(&destination, b"original").await.unwrap();
+        let result = TransferEngine::new().unwrap()
+            .download("http://127.0.0.1:9/sample", &destination, &CancellationToken::new(), None)
+            .await;
+        assert!(matches!(result, Err(TransferError::DestinationExists)));
+        assert_eq!(fs::read(&destination).await.unwrap(), b"original");
     }
 }

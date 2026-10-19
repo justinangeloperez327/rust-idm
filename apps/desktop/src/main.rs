@@ -1,4 +1,5 @@
-use download_http::transfer::{TransferEngine, TransferEvent};
+use download_http::managed::ManagedDownloader;
+use download_http::transfer::TransferEvent;
 use download_storage::database::{DownloadDatabase, DownloadRecord};
 use slint::{Model, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -142,12 +143,11 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             "start" => {
                 if item.status == "downloading" || item.status == "completed" { return; }
-                persist_status(&action_db, id, "downloading", Some(0), None);
+                persist_status(&action_db, id, "downloading", None, None);
                 let token = CancellationToken::new();
                 tokens.borrow_mut().insert(id, token.clone());
                 update_row(&model, id, |row| {
                     row.status = "downloading".into();
-                    row.progress = 0;
                 });
                 let url = item.url.to_string();
                 let weak_window = weak.clone();
@@ -181,7 +181,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                         let worker_token = token.clone();
                         let worker = async {
-                            let engine = TransferEngine::new()?;
+                            let engine = ManagedDownloader::new()?;
                             engine.download(&url, &destination, &worker_token, Some(&tx)).await
                         };
                         tokio::pin!(worker);

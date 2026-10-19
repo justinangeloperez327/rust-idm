@@ -44,7 +44,7 @@ impl ResumeIdentity {
         if self.total_bytes == 0
             || !self.strong_etag.starts_with('"')
             || !self.strong_etag.ends_with('"')
-            || self.strong_etag.contains(['\r', '\n'])
+            || (self.strong_etag.contains('\r') || self.strong_etag.contains('\n'))
         { return Err(ResumeError::MissingStrongValidator); }
         let url = Url::parse(&self.final_url).map_err(|_| ResumeError::InvalidUrl)?;
         if !matches!(url.scheme(), "https" | "http") { return Err(ResumeError::InvalidUrl); }

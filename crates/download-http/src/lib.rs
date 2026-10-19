@@ -1,5 +1,6 @@
 //! HTTP(S) capability probing. Files are not written by this crate yet.
 
+pub mod resume;
 pub mod segmented;
 pub mod transfer;
 

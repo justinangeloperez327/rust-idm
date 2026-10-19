@@ -3,7 +3,7 @@ name = "rust-idm-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-rust-version.workspace = "1.82"
+rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]

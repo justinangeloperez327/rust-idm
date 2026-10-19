@@ -123,6 +123,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let model = rows;
     let action_db = db.clone();
     let weak = app.as_weak();
+    let data_dir_for_workers = data_dir.join("downloads.sqlite");
     app.on_download_action(move |id, action| {
         let Some(item) = (0..model.row_count())
             .filter_map(|index| model.row_data(index))
@@ -150,7 +151,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 });
                 let url = item.url.to_string();
                 let weak_window = weak.clone();
-                let progress_db = action_db.clone();
+                let progress_database_path = data_dir_for_workers.clone();
                 std::thread::spawn(move || {
                     let runtime = match tokio::runtime::Builder::new_current_thread()
                         .enable_all().build()
@@ -160,6 +161,10 @@ fn main() -> Result<(), slint::PlatformError> {
                             eprintln!("Could not launch download runtime: {error}");
                             return;
                         }
+                    };
+                    let worker_db = match DownloadDatabase::open(&progress_database_path) {
+                        Ok(db) => db,
+                        Err(error) => { eprintln!("Cannot open transfer database: {error}"); return; }
                     };
                     runtime.block_on(async move {
                         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -187,7 +192,12 @@ fn main() -> Result<(), slint::PlatformError> {
                                         let percent = total.filter(|n| *n > 0)
                                             .map_or(0, |n| (received.saturating_mul(100) / n).min(100) as i32);
                                         let weak = weak_window.clone();
-                                        let db = progress_db.clone();
+                                        // Database updates occur on the worker, never the Slint UI thread.
+                                        if let Ok(Some(record)) = worker_db.find(i64::from(id)) {
+                                            if record.status == "downloading" {
+                                                persist_status(&worker_db, id, "downloading", Some(received), total);
+                                            }
+                                        }
                                         let _ = slint::invoke_from_event_loop(move || {
                                             if let Some(window) = weak.upgrade() {
                                                 let downloads = window.get_downloads();
@@ -198,7 +208,6 @@ fn main() -> Result<(), slint::PlatformError> {
                                                         if row.status == "downloading" {
                                                             row.progress = percent;
                                                             downloads.set_row_data(index, row);
-                                                            persist_status(&db, id, "downloading", Some(received), total);
                                                         }
                                                     }
                                                 }
@@ -210,8 +219,13 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         };
                         let weak = weak_window;
-                        let db = progress_db;
                         let completed_bytes = result.as_ref().ok().map(|outcome| outcome.bytes);
+                        if let Ok(Some(record)) = worker_db.find(i64::from(id)) {
+                            if record.status == "downloading" {
+                                let state = if result.is_ok() { "completed" } else { "failed" };
+                                persist_status(&worker_db, id, state, completed_bytes, completed_bytes);
+                            }
+                        }
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak.upgrade() {
                                 let downloads = window.get_downloads();
@@ -224,7 +238,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                             else { row.status = "failed".into(); }
                                             let new_status = row.status.to_string();
                                             downloads.set_row_data(index, row);
-                                            persist_status(&db, id, &new_status, completed_bytes, completed_bytes);
+                                            let _ = new_status;
                                         }
                                     }
                                 }

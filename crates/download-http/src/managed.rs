@@ -149,6 +149,43 @@ impl ManagedDownloader {
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn resumes_from_stored_offset_with_strict_range_validation() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("example.bin");
+        let (partial, sidecar) = paths(&destination);
+        fs::write(&partial, b"hello ").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let url = format!("http://{address}/file");
+        let checkpoint = Sidecar {
+            requested_url: url.clone(),
+            final_url: url.clone(),
+            total_bytes: 11,
+            strong_etag: "\"v1\"".to_owned(),
+        };
+        fs::write(&sidecar, serde_json::to_vec(&checkpoint).unwrap()).await.unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let read = socket.read(&mut request).await.unwrap();
+            let text = String::from_utf8_lossy(&request[..read]);
+            assert!(text.contains("range: bytes=6-") || text.contains("Range: bytes=6-"));
+            assert!(text.contains("if-range: \"v1\"") || text.contains("If-Range: \"v1\""));
+            socket.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 6-10/11\r\nETag: \"v1\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld").await.unwrap();
+        });
+        let outcome = ManagedDownloader::new().unwrap()
+            .download(&url, &destination, &CancellationToken::new(), None).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(outcome.bytes, 11);
+        assert_eq!(fs::read(&destination).await.unwrap(), b"hello world");
+        assert!(!fs::try_exists(&sidecar).await.unwrap());
+        assert!(!fs::try_exists(&partial).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn orphan_partial_is_not_trusted() {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("file");

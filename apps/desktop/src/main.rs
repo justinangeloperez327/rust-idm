@@ -121,6 +121,8 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    let cleanup_tokens = tokens.clone();
+    app.on_transfer_finished(move |id| { cleanup_tokens.borrow_mut().remove(&id); });
     let model = rows;
     let action_db = db.clone();
     let weak = app.as_weak();
@@ -132,7 +134,7 @@ fn main() -> Result<(), slint::PlatformError> {
         else { return };
         match action.as_str() {
             "pause" | "cancel" => {
-                if let Some(token) = tokens.borrow_mut().remove(&id) {
+                if let Some(token) = tokens.borrow().get(&id) {
                     token.cancel();
                 }
                 if item.status == "downloading" || item.status == "queued" {
@@ -142,7 +144,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             "start" => {
-                if item.status == "downloading" || item.status == "completed" { return; }
+                if item.status == "downloading" || item.status == "completed" || tokens.borrow().contains_key(&id) { return; }
                 persist_status(&action_db, id, "downloading", None, None);
                 let token = CancellationToken::new();
                 tokens.borrow_mut().insert(id, token.clone());
@@ -228,6 +230,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak.upgrade() {
+                                window.invoke_transfer_finished(id);
                                 let downloads = window.get_downloads();
                                 if let Some(index) = (0..downloads.row_count())
                                     .find(|&index| downloads.row_data(index).is_some_and(|row| row.id == id))

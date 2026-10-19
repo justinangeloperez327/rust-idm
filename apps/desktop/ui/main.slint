@@ -21,6 +21,7 @@ export component MainWindow inherits Window {
     in-out property <int> selected-id: -1;
     callback add-download(string);
     callback download-action(int, string);
+    callback transfer-finished(int);
 
     background: dark-mode ? #111318 : #f4f5f7;
     private property <brush> ink: dark-mode ? #edf0f4 : #202630;

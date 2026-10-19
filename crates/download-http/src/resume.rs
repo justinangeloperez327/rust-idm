@@ -1,5 +1,7 @@
 //! Opt-in resumable single-stream HTTP downloads with a strong ETag.
 //! Partial files are preserved only after validation; never append to unverified data.
+use crate::transfer::TransferEvent;
+use tokio::sync::mpsc;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
 use reqwest::{Client, StatusCode, Url};
 use std::path::Path;
@@ -74,6 +76,7 @@ impl ResumeEngine {
         partial: &Path,
         destination: &Path,
         cancel: &CancellationToken,
+        events: Option<&mpsc::UnboundedSender<TransferEvent>>,
     ) -> Result<u64, ResumeError> {
         identity.validate()?;
         if cancel.is_cancelled() { return Err(ResumeError::Cancelled); }
@@ -117,6 +120,9 @@ impl ResumeEngine {
             received = received.checked_add(chunk.len() as u64).ok_or(ResumeError::InvalidRange)?;
             if received > identity.total_bytes { return Err(ResumeError::InvalidRange); }
             file.write_all(&chunk).await?;
+            if let Some(tx) = events {
+                let _ = tx.send(TransferEvent::Progress { received, total: Some(identity.total_bytes) });
+            }
         }
         file.sync_all().await?;
         drop(file);
@@ -156,7 +162,7 @@ mod tests {
             strong_etag: "\"etag\"".into(),
         };
         assert!(matches!(
-            engine.resume(&identity, &partial, &dir.path().join("final"), &CancellationToken::new()).await,
+            engine.resume(&identity, &partial, &dir.path().join("final"), &CancellationToken::new(), None).await,
             Err(ResumeError::InvalidRange)
         ));
     }

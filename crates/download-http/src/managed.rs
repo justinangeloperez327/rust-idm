@@ -75,7 +75,7 @@ impl ManagedDownloader {
                 let _ = tx.send(TransferEvent::Started { total: Some(identity.total_bytes) });
                 let _ = tx.send(TransferEvent::Progress { received: offset, total: Some(identity.total_bytes) });
             }
-            let bytes = ResumeEngine::new()?.resume(&identity, &partial, destination, cancel).await?;
+            let bytes = ResumeEngine::new()?.resume(&identity, &partial, destination, cancel, events).await?;
             fs::remove_file(&sidecar).await?;
             if let Some(tx) = events { let _ = tx.send(TransferEvent::Completed { bytes }); }
             return Ok(TransferOutcome { bytes, destination: destination.to_path_buf() });

@@ -7,7 +7,6 @@ use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
 use reqwest::{Client, StatusCode, Url};
 use std::path::Path;
 use tokio::fs::{self, OpenOptions};
-use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]

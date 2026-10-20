@@ -1,5 +1,6 @@
 //! Restart-aware download coordinator with a sidecar strong-ETag identity.
 //! Partial content is reusable only when the server agrees to a strict range request.
+use crate::throttle::TransferThrottle;
 use crate::resume::{ResumeEngine, ResumeError, ResumeIdentity};
 use crate::transfer::{TransferEvent, TransferOutcome};
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, ETAG};
@@ -114,6 +115,7 @@ impl ManagedDownloader {
             Err(error) => { let _ = fs::remove_file(&sidecar).await; return Err(error.into()); }
         };
         if let Some(tx) = events { let _ = tx.send(TransferEvent::Started { total: Some(total) }); }
+        let mut throttle = TransferThrottle::from_environment();
         let mut received = 0u64;
         loop {
             let chunk = tokio::select! {
@@ -126,7 +128,7 @@ impl ManagedDownloader {
             let Some(chunk) = chunk else { break };
             received = received.checked_add(chunk.len() as u64).ok_or(ManagedError::InvalidResponse)?;
             if received > total { return Err(ManagedError::InvalidResponse); }
-            output.write_all(&chunk).await?;
+            throttle.write(&mut output, &chunk, cancel).await?;
             if let Some(tx) = events { let _ = tx.send(TransferEvent::Progress { received, total: Some(total) }); }
         }
         output.sync_all().await?;

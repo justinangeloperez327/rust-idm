@@ -1,6 +1,7 @@
 //! Opt-in resumable single-stream HTTP downloads with a strong ETag.
 //! Partial files are preserved only after validation; never append to unverified data.
 use crate::transfer::TransferEvent;
+use crate::throttle::TransferThrottle;
 use tokio::sync::mpsc;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
 use reqwest::{Client, StatusCode, Url};
@@ -107,6 +108,7 @@ impl ResumeEngine {
         let mut file = OpenOptions::new().append(true).open(partial).await?;
         // A separate coordinator must serialize access to this partial path.
         if file.metadata().await?.len() != length { return Err(ResumeError::InvalidRange); }
+        let mut throttle = TransferThrottle::from_environment();
         let mut received = length;
         loop {
             let chunk = tokio::select! {
@@ -119,7 +121,7 @@ impl ResumeEngine {
             let Some(chunk) = chunk else { break };
             received = received.checked_add(chunk.len() as u64).ok_or(ResumeError::InvalidRange)?;
             if received > identity.total_bytes { return Err(ResumeError::InvalidRange); }
-            file.write_all(&chunk).await?;
+            throttle.write(&mut file, &chunk, cancel).await?;
             if let Some(tx) = events {
                 let _ = tx.send(TransferEvent::Progress { received, total: Some(identity.total_bytes) });
             }

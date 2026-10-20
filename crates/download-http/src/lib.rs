@@ -4,6 +4,7 @@ pub mod managed;
 pub mod resume;
 pub mod segmented;
 pub mod transfer;
+pub mod throttle;
 
 use reqwest::header::{ACCEPT_RANGES, CONTENT_RANGE, ETAG, LAST_MODIFIED, RANGE};
 use reqwest::{Client, StatusCode, Url};

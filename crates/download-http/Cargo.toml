@@ -12,6 +12,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+download-scheduler = { path = "../download-scheduler" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,4 +1,5 @@
 use download_http::managed::ManagedDownloader;
+use download_http::throttle::configure_global_limit;
 use download_http::transfer::TransferEvent;
 use download_storage::database::{DownloadDatabase, DownloadRecord};
 use download_scheduler::{JobId, Priority, Scheduler, JobState};
@@ -123,6 +124,31 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     let scheduler = Rc::new(RefCell::new(Scheduler::new(3).expect("valid worker limit")));
+    app.set_max_concurrent(3);
+    app.set_global_limit_kib(0);
+    let settings_scheduler = scheduler.clone();
+    let settings_window = app.as_weak();
+    app.on_apply_settings(move |concurrency, kib| {
+        if !(1..=16).contains(&concurrency) || !(0..=1_048_576).contains(&kib) {
+            eprintln!("Invalid settings");
+            return;
+        }
+        let rate = if kib == 0 { None } else { Some(kib as u64 * 1024) };
+        if let Err(error) = configure_global_limit(rate) {
+            eprintln!("Could not apply bandwidth setting: {error}");
+            return;
+        }
+        let ready = {
+            let mut scheduler = settings_scheduler.borrow_mut();
+            if scheduler.set_limit(concurrency as usize).is_err() { return; }
+            scheduler.dispatch_ready()
+        };
+        if let Some(window) = settings_window.upgrade() {
+            for job in ready {
+                window.invoke_download_action(job.0 as i32, "launch".into());
+            }
+        }
+    });
     let cleanup_tokens = tokens.clone();
     let completion_scheduler = scheduler.clone();
     let completion_window = app.as_weak();

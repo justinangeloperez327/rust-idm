@@ -8,9 +8,29 @@ use tokio_util::sync::CancellationToken;
 
 pub struct TransferThrottle {
     local: Option<TokenBucket>,
-    global: Option<Arc<Mutex<TokenBucket>>>,
+    global: Option<Arc<Mutex<Option<TokenBucket>>>>,
 }
-static GLOBAL_BUCKET: OnceLock<Option<Arc<Mutex<TokenBucket>>>> = OnceLock::new();
+static GLOBAL_BUCKET: OnceLock<Arc<Mutex<Option<TokenBucket>>>> = OnceLock::new();
+
+fn global_bucket() -> Arc<Mutex<Option<TokenBucket>>> {
+    GLOBAL_BUCKET.get_or_init(|| {
+        let rate = std::env::var("RUST_IDM_GLOBAL_BYTES_PER_SECOND")
+            .ok().and_then(|value| value.parse::<u64>().ok()).filter(|value| *value > 0);
+        Arc::new(Mutex::new(rate.map(|rate| TokenBucket::new(rate, Instant::now())
+            .expect("positive rate"))))
+    }).clone()
+}
+
+/// Applies a global write-rate limit immediately to all active workers.
+/// None disables the shared limit.
+pub fn configure_global_limit(rate: Option<u64>) -> std::io::Result<()> {
+    let next = rate.filter(|value| *value > 0)
+        .map(|rate| TokenBucket::new(rate, Instant::now()).expect("positive rate"));
+    let global = global_bucket();
+    let mut guard = global.lock().map_err(|_| std::io::Error::other("bandwidth lock poisoned"))?;
+    *guard = next;
+    Ok(())
+}
 
 fn cancelled() -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Interrupted, "transfer cancelled")
@@ -23,7 +43,7 @@ impl TransferThrottle {
 
     pub fn with_shared(
         local_rate: Option<u64>,
-        shared: Option<Arc<Mutex<TokenBucket>>>,
+        shared: Option<Arc<Mutex<Option<TokenBucket>>>>,
     ) -> Self {
         Self {
             local: local_rate.filter(|rate| *rate > 0)
@@ -38,13 +58,7 @@ impl TransferThrottle {
     pub fn from_environment() -> Self {
         let local = std::env::var("RUST_IDM_BYTES_PER_SECOND")
             .ok().and_then(|value| value.parse::<u64>().ok());
-        let global = GLOBAL_BUCKET.get_or_init(|| {
-            std::env::var("RUST_IDM_GLOBAL_BYTES_PER_SECOND")
-                .ok().and_then(|value| value.parse::<u64>().ok())
-                .filter(|value| *value > 0)
-                .map(|rate| Arc::new(Mutex::new(TokenBucket::new(rate, Instant::now())
-                    .expect("positive rate"))))
-        }).clone();
+        let global = Some(global_bucket());
         Self::with_shared(local, global)
     }
 
@@ -63,7 +77,7 @@ impl TransferThrottle {
             let requested = locally_available.min(remaining.len() as u64).min(64 * 1024);
             let granted = if let Some(shared) = &self.global {
                 let mut bucket = shared.lock().map_err(|_| std::io::Error::other("bandwidth lock poisoned"))?;
-                bucket.take(requested, now)
+                bucket.as_mut().map_or(requested, |active| active.take(requested, now))
             } else { requested };
             if granted == 0 {
                 tokio::select! {
@@ -109,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_budget_is_consumed_by_both_transfers() {
-        let shared = Arc::new(Mutex::new(TokenBucket::new(100, Instant::now()).unwrap()));
+        let shared = Arc::new(Mutex::new(Some(TokenBucket::new(100, Instant::now()).unwrap())));
         let mut a = TransferThrottle::with_shared(None, Some(shared.clone()));
         let mut b = TransferThrottle::with_shared(None, Some(shared.clone()));
         let dir = tempfile::tempdir().unwrap();
@@ -117,7 +131,7 @@ mod tests {
         let mut second = tokio::fs::File::create(dir.path().join("second")).await.unwrap();
         let cancel = CancellationToken::new();
         a.write(&mut first, &[1; 70], &cancel).await.unwrap();
-        let remaining = shared.lock().unwrap().available(Instant::now());
+        let remaining = shared.lock().unwrap().as_mut().unwrap().available(Instant::now());
         assert!(remaining <= 30);
         // Both write callers use the same bucket; the second must await
         // capacity rather than receiving a separate initial burst.

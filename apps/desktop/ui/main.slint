@@ -22,6 +22,9 @@ export component MainWindow inherits Window {
     callback add-download(string);
     callback download-action(int, string);
     callback transfer-finished(int);
+    in-out property <int> max-concurrent: 3;
+    in-out property <int> global-limit-kib: 0;
+    callback apply-settings(int, int);
 
     background: dark-mode ? #111318 : #f4f5f7;
     private property <brush> ink: dark-mode ? #edf0f4 : #202630;
@@ -66,7 +69,31 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-            Rectangle {
+            if (selected-page == "Settings") : Rectangle {
+                background: surface;
+                border-radius: 5px;
+                vertical-stretch: 1;
+                VerticalBox {
+                    padding: 24px;
+                    spacing: 14px;
+                    Text { text: "Transfer settings"; color: ink; font-size: 20px; font-weight: 700; }
+                    Text { text: "Maximum concurrent downloads (1–16)"; color: muted; }
+                    concurrency-input := LineEdit { text: max-concurrent; }
+                    Text { text: "Shared bandwidth limit (KiB/s; 0 = unlimited)"; color: muted; }
+                    bandwidth-input := LineEdit { text: global-limit-kib; }
+                    Button {
+                        text: "Apply settings";
+                        clicked => {
+                            max-concurrent = concurrency-input.text.to-float() as int;
+                            global-limit-kib = bandwidth-input.text.to-float() as int;
+                            apply-settings(max-concurrent, global-limit-kib);
+                        }
+                    }
+                    Text { text: "Settings apply immediately but reset after restart."; color: muted; }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            if (selected-page != "Settings") : Rectangle {
                 background: surface;
                 border-radius: 5px;
                 vertical-stretch: 1;
@@ -117,7 +144,7 @@ export component MainWindow inherits Window {
                 }
             }
             Text {
-                text: "HTTP downloads enabled • Pause restarts transfers from zero";
+                text: "HTTP downloads • Validated HTTP range resume supported";
                 color: muted;
                 font-size: 12px;
             }

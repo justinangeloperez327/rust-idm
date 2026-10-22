@@ -78,18 +78,24 @@ export component MainWindow inherits Window {
                     spacing: 14px;
                     Text { text: "Transfer settings"; color: ink; font-size: 20px; font-weight: 700; }
                     Text { text: "Maximum concurrent downloads (1–16)"; color: muted; }
-                    concurrency-input := LineEdit { text: max-concurrent; }
+                    HorizontalBox {
+                        Button { text: "−"; enabled: max-concurrent > 1; clicked => { max-concurrent -= 1; } }
+                        Text { text: max-concurrent; color: ink; }
+                        Button { text: "+"; enabled: max-concurrent < 16; clicked => { max-concurrent += 1; } }
+                    }
                     Text { text: "Shared bandwidth limit (KiB/s; 0 = unlimited)"; color: muted; }
-                    bandwidth-input := LineEdit { text: global-limit-kib; }
+                    HorizontalBox {
+                        Button { text: "− 256"; enabled: global-limit-kib >= 256; clicked => { global-limit-kib -= 256; } }
+                        Text { text: global-limit-kib; color: ink; }
+                        Button { text: "+ 256"; enabled: global-limit-kib <= 1048320; clicked => { global-limit-kib += 256; } }
+                    }
                     Button {
                         text: "Apply settings";
                         clicked => {
-                            max-concurrent = concurrency-input.text.to-float() as int;
-                            global-limit-kib = bandwidth-input.text.to-float() as int;
                             apply-settings(max-concurrent, global-limit-kib);
                         }
                     }
-                    Text { text: "Settings apply immediately but reset after restart."; color: muted; }
+                    Text { text: "Settings apply immediately and are restored on restart."; color: muted; }
                     Rectangle { vertical-stretch: 1; }
                 }
             }

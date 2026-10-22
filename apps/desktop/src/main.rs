@@ -1,3 +1,5 @@
+mod settings;
+use settings::TransferSettings;
 use download_http::managed::ManagedDownloader;
 use download_http::throttle::configure_global_limit;
 use download_http::transfer::TransferEvent;
@@ -123,9 +125,16 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    let scheduler = Rc::new(RefCell::new(Scheduler::new(3).expect("valid worker limit")));
-    app.set_max_concurrent(3);
-    app.set_global_limit_kib(0);
+    let settings_path = data_dir.join("settings.json");
+    let saved = TransferSettings::load(&settings_path).unwrap_or_else(|error| {
+        eprintln!("Cannot read settings: {error}; using defaults");
+        TransferSettings::default()
+    });
+    app.set_max_concurrent(saved.concurrency);
+    app.set_global_limit_kib(saved.global_limit_kib);
+    let _ = configure_global_limit((saved.global_limit_kib > 0)
+        .then_some(saved.global_limit_kib as u64 * 1024));
+    let scheduler = Rc::new(RefCell::new(Scheduler::new(saved.concurrency as usize).expect("valid worker limit")));
     let settings_scheduler = scheduler.clone();
     let settings_window = app.as_weak();
     app.on_apply_settings(move |concurrency, kib| {
@@ -137,6 +146,9 @@ fn main() -> Result<(), slint::PlatformError> {
         if let Err(error) = configure_global_limit(rate) {
             eprintln!("Could not apply bandwidth setting: {error}");
             return;
+        }
+        if let Err(error) = (TransferSettings { concurrency, global_limit_kib: kib }).save(&settings_path) {
+            eprintln!("Could not save transfer settings: {error}");
         }
         let ready = {
             let mut scheduler = settings_scheduler.borrow_mut();

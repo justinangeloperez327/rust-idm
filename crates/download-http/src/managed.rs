@@ -205,7 +205,8 @@ mod tests {
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = [0; 4096];
-            stream.read(&mut request).await.unwrap();
+            let read = stream.read(&mut request).await.unwrap();
+            assert!(read > 0);
             stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 6-10/11\r\nETag: \"changed\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld").await.unwrap();
         });
         let result = ManagedDownloader::new().unwrap()
@@ -227,6 +228,45 @@ mod tests {
             .download("http://127.0.0.1:1/file", &destination, &CancellationToken::new(), None).await;
         assert!(matches!(result, Err(ManagedError::InvalidResponse)));
         assert!(!fs::try_exists(&destination).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn interrupted_download_recovers_using_saved_offset() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("interrupted.bin");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            // First response has only part of its advertised body, simulating
+            // a broken connection after the checkpoint has been written.
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut req = [0u8; 4096];
+            let n = first.read(&mut req).await.unwrap();
+            assert!(n > 0);
+            first.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nhello ").await.unwrap();
+            drop(first);
+            let (mut second, _) = listener.accept().await.unwrap();
+            let n = second.read(&mut req).await.unwrap();
+            let request = String::from_utf8_lossy(&req[..n]).to_ascii_lowercase();
+            assert!(request.contains("range: bytes=6-"), "{request}");
+            assert!(request.contains("if-range: \"v1\""), "{request}");
+            second.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 6-10/11\r\nETag: \"v1\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld").await.unwrap();
+        });
+        let downloader = ManagedDownloader::new().unwrap();
+        let first = downloader.download(&url, &destination, &CancellationToken::new(), None).await;
+        assert!(first.is_err());
+        let (partial, sidecar) = paths(&destination);
+        assert_eq!(fs::read(&partial).await.unwrap(), b"hello ");
+        assert!(fs::try_exists(&sidecar).await.unwrap());
+        // Construct a fresh downloader to model application restart.
+        let completed = ManagedDownloader::new().unwrap()
+            .download(&url, &destination, &CancellationToken::new(), None).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(completed.bytes, 11);
+        assert_eq!(fs::read(&destination).await.unwrap(), b"hello world");
+        assert!(!fs::try_exists(&sidecar).await.unwrap());
     }
 
     #[tokio::test]

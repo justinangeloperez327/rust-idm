@@ -48,6 +48,16 @@ impl TransferSettings {
 mod tests {
     use super::*;
     #[test]
+    fn corrupted_settings_are_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("settings.json");
+        fs::write(&path, b"{invalid").unwrap();
+        assert_eq!(TransferSettings::load(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        fs::write(&path, br#"{"concurrency":64,"global_limit_kib":0}"#).unwrap();
+        assert_eq!(TransferSettings::load(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
     fn settings_round_trip() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("settings.json");

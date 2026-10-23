@@ -188,6 +188,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn changed_remote_etag_preserves_partial_and_destination() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("download.bin");
+        let (partial, sidecar) = paths(&destination);
+        fs::write(&partial, b"hello ").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let checkpoint = Sidecar {
+            requested_url: url.clone(), final_url: url.clone(),
+            total_bytes: 11, strong_etag: "\"old\"".into(),
+        };
+        fs::write(&sidecar, serde_json::to_vec(&checkpoint).unwrap()).await.unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).await.unwrap();
+            stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 6-10/11\r\nETag: \"changed\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nworld").await.unwrap();
+        });
+        let result = ManagedDownloader::new().unwrap()
+            .download(&url, &destination, &CancellationToken::new(), None).await;
+        server.await.unwrap();
+        assert!(matches!(result, Err(ManagedError::Resume(ResumeError::InvalidRange))));
+        assert_eq!(fs::read(&partial).await.unwrap(), b"hello ");
+        assert!(fs::try_exists(&sidecar).await.unwrap());
+        assert!(!fs::try_exists(&destination).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn missing_partial_does_not_restart_unverified() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("file");
+        let (_, sidecar) = paths(&destination);
+        fs::write(&sidecar, b"{}").await.unwrap();
+        let result = ManagedDownloader::new().unwrap()
+            .download("http://127.0.0.1:1/file", &destination, &CancellationToken::new(), None).await;
+        assert!(matches!(result, Err(ManagedError::InvalidResponse)));
+        assert!(!fs::try_exists(&destination).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn orphan_partial_is_not_trusted() {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("file");

@@ -319,6 +319,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn downloads_without_etag_using_nonresumable_fallback() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("plain.bin");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/plain", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            assert!(read > 0);
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello").await.unwrap();
+        });
+        let result = ManagedDownloader::new().unwrap()
+            .download(&url, &destination, &CancellationToken::new(), None).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(result.bytes, 5);
+        assert_eq!(fs::read(&destination).await.unwrap(), b"hello");
+        assert!(!fs::try_exists(destination.with_extension("rust-idm-fallback-part")).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn orphan_partial_is_not_trusted() {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("file");

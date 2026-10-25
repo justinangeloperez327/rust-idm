@@ -186,7 +186,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(item) = (0..model.row_count())
             .filter_map(|index| model.row_data(index))
             .find(|row| row.id == id)
-        else { return };
+        else {
+            if let Some(window) = weak.upgrade() { window.set_transfer_message("Select an item using Details before starting.".into()); }
+            return;
+        };
         match action.as_str() {
             "pause" | "cancel" => {
                 if action_scheduler.borrow().state(JobId(id as u64)) == Some(JobState::Queued) {
@@ -208,6 +211,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     eprintln!("Could not enqueue download: {error:?}");
                     return;
                 }
+                if let Some(window) = weak.upgrade() { window.set_transfer_message(format!("Download {id} added to queue").into()); }
                 persist_status(&action_db, id, "queued", None, None);
                 update_row(&model, id, |row| row.status = "queued".into());
                 let ready = action_scheduler.borrow_mut().dispatch_ready();
@@ -218,6 +222,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "launch" => {
                 if action_scheduler.borrow().state(JobId(id as u64)) != Some(JobState::Running) { return; }
                 if tokens.borrow().contains_key(&id) { return; }
+                if let Some(window) = weak.upgrade() { window.set_transfer_message(format!("Download {id}: connecting to server…").into()); }
                 persist_status(&action_db, id, "downloading", None, None);
                 let token = CancellationToken::new();
                 tokens.borrow_mut().insert(id, token.clone());
@@ -236,7 +241,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             eprintln!("Could not launch download runtime: {error}");
                             let weak = weak_window.clone();
                             let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(window) = weak.upgrade() { window.invoke_transfer_finished(id); }
+                                if let Some(window) = weak.upgrade() { window.set_transfer_message(format!("Download {id}: worker startup failed").into()); window.invoke_transfer_finished(id); }
                             });
                             return;
                         }
@@ -308,6 +313,8 @@ fn main() -> Result<(), slint::PlatformError> {
                                 result = &mut worker => break result,
                             }
                         };
+                        let error_message = result.as_ref().err().map(|error| format!("Download {id} failed: {error}"));
+                        if let Some(message) = &error_message { eprintln!("{message}"); }
                         let weak = weak_window;
                         let completed_bytes = result.as_ref().ok().map(|outcome| outcome.bytes);
                         if let Ok(Some(record)) = worker_db.find(i64::from(id)) {
@@ -318,6 +325,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak.upgrade() {
+                                if let Some(message) = error_message {
+                                    window.set_transfer_message(message.into());
+                                } else if result.is_ok() {
+                                    window.set_transfer_message(format!("Download {id} completed; check Downloads folder").into());
+                                }
                                 window.invoke_transfer_finished(id);
                                 let downloads = window.get_downloads();
                                 if let Some(index) = (0..downloads.row_count())

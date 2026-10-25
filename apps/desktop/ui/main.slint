@@ -22,6 +22,7 @@ export component MainWindow inherits Window {
     callback add-download(string);
     callback download-action(int, string);
     callback transfer-finished(int);
+    in-out property <string> transfer-message: "Select a download and click Start.";
     in-out property <int> max-concurrent: 3;
     in-out property <int> global-limit-kib: 0;
     callback apply-settings(int, int);
@@ -58,6 +59,7 @@ export component MainWindow inherits Window {
             padding: 22px;
             spacing: 14px;
             Text { text: selected-page; font-size: 26px; font-weight: 700; color: ink; }
+            Text { text: transfer-message; font-size: 12px; color: muted; wrap: word-wrap; }
             HorizontalBox {
                 spacing: 8px;
                 url-input := LineEdit { placeholder-text: "Paste an HTTP or HTTPS URL"; }

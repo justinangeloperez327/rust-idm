@@ -97,7 +97,56 @@ impl ManagedDownloader {
             .filter(|s| s.starts_with('"') && s.ends_with('"') && !s.contains('\r') && !s.contains('\n'))
             .map(str::to_owned);
         if total.is_none() || strong_etag.is_none() {
-            return Err(ManagedError::InvalidResponse);
+            // Not all HTTP servers supply resumable validators. Download the
+            // existing response normally rather than rejecting a valid file.
+            // Such transfers restart from zero after cancellation.
+            let fallback = destination.with_extension("rust-idm-fallback-part");
+            let mut output = OpenOptions::new().write(true).create_new(true).open(&fallback).await?;
+            if let Some(tx) = events { let _ = tx.send(TransferEvent::Started { total }); }
+            let mut received = 0u64;
+            let mut throttle = TransferThrottle::from_environment();
+            let result: Result<(), ManagedError> = async {
+                loop {
+                    let chunk = tokio::select! {
+                        _ = cancel.cancelled() => return Err(ManagedError::Cancelled),
+                        value = response.chunk() => value?,
+                    };
+                    let Some(chunk) = chunk else { break };
+                    let next = received.checked_add(chunk.len() as u64)
+                        .ok_or(ManagedError::InvalidResponse)?;
+                    if total.is_some_and(|size| next > size) {
+                        return Err(ManagedError::InvalidResponse);
+                    }
+                    throttle.write(&mut output, &chunk, cancel).await?;
+                    received = next;
+                    if let Some(tx) = events {
+                        let _ = tx.send(TransferEvent::Progress { received, total });
+                    }
+                }
+                if total.is_some_and(|size| received != size) {
+                    return Err(ManagedError::InvalidResponse);
+                }
+                if cancel.is_cancelled() { return Err(ManagedError::Cancelled); }
+                output.sync_all().await?;
+                Ok(())
+            }.await;
+            drop(output);
+            if let Err(error) = result {
+                let _ = fs::remove_file(&fallback).await;
+                return Err(error);
+            }
+            let published = fs::hard_link(&fallback, destination).await;
+            let _ = fs::remove_file(&fallback).await;
+            match published {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists =>
+                    return Err(ManagedError::DestinationExists),
+                Err(error) => return Err(ManagedError::Io(error)),
+            }
+            if let Some(tx) = events {
+                let _ = tx.send(TransferEvent::Completed { bytes: received });
+            }
+            return Ok(TransferOutcome { bytes: received, destination: destination.to_path_buf() });
         }
         let total = total.unwrap_or(0);
         let saved = Sidecar {

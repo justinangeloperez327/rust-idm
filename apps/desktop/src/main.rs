@@ -206,7 +206,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             "start" => {
                 if item.status == "downloading" || item.status == "completed" || tokens.borrow().contains_key(&id) { return; }
-                if action_scheduler.borrow().state(JobId(id as u64)).is_some() { return; }
+                if action_scheduler.borrow().state(JobId(id as u64)).is_some() { if let Some(window) = weak.upgrade() { window.set_transfer_message(format!("Download {id} is already queued or running").into()); } return; }
                 if let Err(error) = action_scheduler.borrow_mut().enqueue(JobId(id as u64), Priority::Normal) {
                     eprintln!("Could not enqueue download: {error:?}");
                     return;

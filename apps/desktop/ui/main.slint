@@ -135,7 +135,16 @@ export component MainWindow inherits Window {
                                         Text { text: download.url; color: muted; font-size: 11px; overflow: elide; }
                                         Button {
                                             text: selected-id == download.id ? "Selected" : "Details";
-                                            clicked => { selected-id = download.id; }
+                                            clicked => { selected-id = download.id; transfer-message = "Selected download #" + download.id; }
+                                        }
+                                        Button {
+                                            text: "Start";
+                                            enabled: download.status != "downloading" && download.status != "completed";
+                                            clicked => {
+                                                selected-id = download.id;
+                                                transfer-message = "Start requested for download #" + download.id;
+                                                download-action(download.id, "start");
+                                            }
                                         }
                                     }
                                     Text { text: download.status; horizontal-stretch: 1; color: ink; }
@@ -145,7 +154,7 @@ export component MainWindow inherits Window {
                         }
                     }
                     HorizontalBox {
-                        Button { text: "Start"; enabled: selected-id >= 0; clicked => { download-action(selected-id, "start"); } }
+                        Button { text: "Start"; enabled: selected-id >= 0; clicked => { transfer-message = "Start requested for #" + selected-id; download-action(selected-id, "start"); } }
                         Button { text: "Pause"; enabled: selected-id >= 0; clicked => { download-action(selected-id, "pause"); } }
                         Button { text: "Cancel"; enabled: selected-id >= 0; clicked => { download-action(selected-id, "cancel"); } }
                     }

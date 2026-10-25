@@ -1,0 +1,57 @@
+name: Windows Preview v0.1.0
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-preview.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Test
+        run: |
+          cargo fmt --all
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+      - name: Build
+        run: cargo build --release -p rust-idm-desktop
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/portable/RustIDM | Out-Null
+          Copy-Item target/release/rust-idm-desktop.exe dist/portable/RustIDM/RustIDM.exe
+          Copy-Item docs/RELEASE-v0.1.0.md dist/portable/RustIDM/README.txt
+          Compress-Archive -Path dist/portable/RustIDM -DestinationPath dist/RustIDM-v0.1.0-win64-portable.zip
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup unavailable' }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'packaging/windows/RustIDM.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer failed' }
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $names = @('RustIDM-v0.1.0-win64-portable.zip','RustIDM-v0.1.0-win64-setup.exe')
+          $lines = foreach ($name in $names) { "$((Get-FileHash -Algorithm SHA256 ("dist/" + $name)).Hash.ToLowerInvariant())  $name" }
+          Set-Content dist/SHA256SUMS.txt $lines
+      - name: Publish GitHub preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v0.1.0 *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists' }
+          gh release create v0.1.0 dist/RustIDM-v0.1.0-win64-portable.zip dist/RustIDM-v0.1.0-win64-setup.exe dist/SHA256SUMS.txt --target "$env:GITHUB_SHA" --title "Rust IDM v0.1.0 Preview" --notes-file docs/RELEASE-v0.1.0.md --prerelease
+          if ($LASTEXITCODE -ne 0) { throw 'Publication failed' }
